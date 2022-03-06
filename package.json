@@ -2,7 +2,7 @@
   "name": "threejsexperiments",
   "version": "0.0.0",
   "scripts": {
-    "start": "vite --host $PORT",
+    "start": "vite --host $process.env.PORT",
     "dev": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview",
