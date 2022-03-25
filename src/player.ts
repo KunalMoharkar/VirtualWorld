@@ -12,6 +12,7 @@ interface MotionState {
     left: boolean;
     reverse: boolean;
     right: boolean;
+    speed: boolean;
     mouseNormalX: number;
     mouseNormalY: number;
     mousecapture: boolean,
@@ -30,6 +31,9 @@ export class Player {
     velocity: number;
     // Position stores the current position of the player
     position: THREE.Vector3;
+    // Acceleration
+    acceleration: number;
+    decceleration: THREE.Vector3;
     // Animation state stores current animation of the player
     // Determines which animation will be played when
     animationState: string;
@@ -53,6 +57,7 @@ export class Player {
             left: false,
             reverse: false,
             right: false,
+            speed: false,
             mouseNormalX: 0,
             mouseNormalY: 0,
             mousecapture: false,
@@ -61,7 +66,9 @@ export class Player {
         this.animationState = "idle";
         this.location = location;
         this.initControls();
-        this.lookSpeedX = this.lookSpeedY = 1e-5;
+        this.lookSpeedX = this.lookSpeedY = 0.05;
+        this.acceleration = 2;
+        this.decceleration = new THREE.Vector3();
     }
 
     setCameraPosition(position: THREE.Vector3) {
@@ -75,19 +82,23 @@ export class Player {
     initControls() {
         document.addEventListener("keydown", (e) => {
             switch (e.key) {
-                case "w":
+                case "w": case "W":
                     this.motion.forward = true;
                     this.animationState = "accelerating";
                     break;
-                case "a":
+                case "a": case "A":
                     this.motion.left = true;
                     break;
-                case "s":
+                case "s": case "S":
                     this.motion.reverse = true;
                     this.animationState = "decelerating";
                     break;
-                case "d":
+                case "d": case "D":
                     this.motion.right = true;
+                    break;
+                case "Shift":
+                    this.motion.speed = true;
+                    break;
             }
         });
 
@@ -102,27 +113,30 @@ export class Player {
 
         document.addEventListener("keyup", (e) => {
             switch (e.key) {
-                case "w":
+                case "w": case "W":
                     this.motion.forward = false;
                     this.animationState = "idle";
                     break;
-                case "a":
+                case "a": case "A":
                     this.motion.left = false;
                     break;
-                case "s":
+                case "s": case "S":
                     this.motion.reverse = false;
                     this.animationState = "idle";
                     break;
-                case "d":
+                case "d": case "D":
                     this.motion.right = false;
                     break;
+                case "Shift":
+                    this.motion.speed = false;
             }
         });
 
         document.addEventListener("pointermove", (e) => {
             if (this.motion.mousecapture) {
-                const normalisedX = (e.clientX - window.innerWidth / 2) * 2 - 1;
-                const normalisedY = -((e.clientY - window.innerHeight / 2) * 2 - 1);
+                const normalisedX = ( e.clientX / window.innerWidth ) * 2 - 1;
+                const normalisedY = - ( e.clientY / window.innerHeight ) * 2 + 1;
+                console.log({normalisedX, normalisedY});
                 this.motion.mouseNormalX = -normalisedX;
                 this.motion.mouseNormalY = normalisedY;
             }
@@ -131,20 +145,35 @@ export class Player {
         document.addEventListener('touchstart', (_) => {
             this.lookSpeedX = this.lookSpeedY = 3e-5;
         })
+
+        document.addEventListener('mousedown', () => {
+            this.motion.mousecapture = true;
+        })
+
+        document.addEventListener('mouseup', () => {
+            this.motion.mousecapture = false;
+        })
     }
 
-    motionUpdate() {
+    motionUpdate(deltaT: number) {
+
+        let acc = this.acceleration;
+
+        if (this.motion.speed) {
+            acc *= 2;
+        }
+
         if (this.motion.forward) {
-            this.velocity += 0.01;
+            this.velocity += acc * deltaT;
         }
         if (this.motion.left) {
-            this.model.rotateY(0.02);
+            this.model.rotateY(2 * deltaT);
         }
         if (this.motion.right) {
-            this.model.rotateY(-0.02);
+            this.model.rotateY(-2 * deltaT);
         }
         if (this.motion.reverse) {
-            this.velocity -= 0.01;
+            this.velocity -= acc * deltaT;
         }
 
         let rotataeXQuaternion = new THREE.Quaternion();
@@ -155,10 +184,10 @@ export class Player {
         );
         rotataeYQuaternion.setFromAxisAngle(
             new THREE.Vector3(1, 0, 0),
-            this.motion.mouseNormalY * this.lookSpeedY
+            this.motion.mouseNormalY * 0.3
         );
         this.model.applyQuaternion(rotataeXQuaternion);
-        this.camera.applyQuaternion(rotataeYQuaternion);
+        this.camera.quaternion.slerp(rotataeYQuaternion, 0.05);
     }
 
     animate() {
@@ -194,8 +223,8 @@ export class Player {
         }
     }
 
-    update() {
-        this.motionUpdate();
+    update(deltaT: number) {
+        this.motionUpdate(deltaT);
         this.animate();
         this.model.translateZ(-this.velocity);
         this.velocity *= 0.8;

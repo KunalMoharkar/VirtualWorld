@@ -2,42 +2,40 @@ import './style.css'
 import * as THREE from 'three';
 import { Player } from './player';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass';
 
 const grassTextureURL = 'res/textures/grass/Grass_01.png'
 const grassNormalURL = 'res/textures/grass/Grass_01_Nrm.png'
 
-/*
-import bushTextureURL from '../public/res/textures/grass/Grass_01.png'
-import bushNormalURL from '../public/res/textures/grass/Grass_01_Nrm.png'
-*/
+
+import { Advert } from './advert';
+import { Artwork } from './artowrk';
+
 
 const playerModelUrl = 'res/models/avatar/source/eve.fbx';
-
-const skyFragShader = 'res/shaders/sky/sky.frag';
-const skyVertShader = 'res/shaders/sky/sky.vert';
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
 const hud = {
   time: document.querySelector<HTMLDivElement>('#time')!,
   location: document.querySelector<HTMLDivElement>('#location')!,
-  modal: document.querySelector<HTMLDivElement>('#modal')!,
+  modal: {
+    container: document.querySelector<HTMLDivElement>('#modal')!,
+    content: document.querySelector<HTMLDivElement>('#modal-content')!,
+    closeButtom: document.querySelector<HTMLDivElement>('#modal-close-button')!
+  },
   controls: {
     w: document.querySelector<HTMLButtonElement>('#w')!,
     a: document.querySelector<HTMLButtonElement>('#a')!,
     s: document.querySelector<HTMLButtonElement>('#s')!,
     d: document.querySelector<HTMLButtonElement>('#d')!,
-    mouseCapture: document.querySelector<HTMLButtonElement>('#capture')!
-  }
+  },
 }
-
-function hudSetup() {
-  // Close Modal on Click
-  hud.modal.addEventListener('click', (_) => {
-    hud.modal.classList.remove('appear-grow');
-  })
-}
-hudSetup();
 
 const mousePointer = new THREE.Vector2();
 
@@ -46,42 +44,29 @@ const grassTexture = textureLoader.load(grassTextureURL)
 grassTexture.wrapS = THREE.MirroredRepeatWrapping;
 grassTexture.wrapT = THREE.MirroredRepeatWrapping;
 grassTexture.repeat.set(64, 64);
+
+grassTexture.repeat.set(64, 64);
 const grassNormal = textureLoader.load(grassNormalURL);
 grassNormal.wrapS = THREE.MirroredRepeatWrapping;
 grassNormal.wrapT = THREE.MirroredRepeatWrapping;
 grassNormal.repeat.set(64, 64);
 
 const fbxLoader = new FBXLoader();
-const forest: THREE.Object3D = new THREE.Object3D()
-
-const BASE_PATH = {
-  trees: '/res/models/trees/',
-  props: '/res/models/props/',
-  buildings: '/res/models/buildings/',
-  mobs: '/res/models/mobs/'
-}
-
-const TREENAMES = [
-  'BirchTree_1.fbx',
-  'BirchTree_2.fbx',
-  'CommonTree_3.fbx',
-  'CommonTree_4.fbx',
-  'Willow_1.fbx',
-]
-
+const gltfLoader = new GLTFLoader();
 
 const renderer = new THREE.WebGLRenderer({
-  antialias: window.devicePixelRatio <= 1,
-  powerPreference: "high-performance"
+  logarithmicDepthBuffer: true
 })
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.BasicShadowMap;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.physicallyCorrectLights = true;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
+renderer.sortObjects = true;
 app.appendChild(renderer.domElement);
 
-// tick variable keeps track of time
-let tick = 0.0;
+// Initialise an effect composer
+const composer = new EffectComposer(renderer);
 
 // Create a player object and setup the camera
 const PLAYER = new Player({ FOV: 60, aspect: window.innerWidth / window.innerHeight, near: 0.1, far: 1000 }, 'Forest');
@@ -102,241 +87,322 @@ PLAYER.camera.position.set(0, 1, 0);
   hud.controls.d.addEventListener(e, (_) => { PLAYER.motion.right = false; });
 });
 
-hud.controls.mouseCapture.addEventListener('click', (_) => {
-  PLAYER.motion.mousecapture = !PLAYER.motion.mousecapture;
-  hud.controls.mouseCapture.innerText = "Press C to stop";
-})
+// Clock to keep track of time
+const worldClock = new THREE.Clock();
 
-document.addEventListener('keypress', (e) => {
-  if (e.key == 'c') {
-    hud.controls.mouseCapture.innerText = "Start Mouse Capture";
-  } 
-})
+// Create a scene
+const scene = new THREE.Scene();
+scene.add(PLAYER.model);
+scene.fog = new THREE.FogExp2(0xc0c0c0, 0.04);
 
 // Adding a sphere mesh for the player to follow
-PLAYER.model.castShadow = true;
-const pl = new THREE.Mesh(
-  new THREE.BoxBufferGeometry(.1, .1, .1, 1, 1, 1),
-  new THREE.MeshBasicMaterial({
-    color: 0xffffff
-  })
-)
-const playerLight = new THREE.PointLight(0x01011d, 0.3);
-pl.add(playerLight);
+PLAYER.model.castShadow = false;
+const playerLight = new THREE.PointLight(0x010101, 1.0);
 PLAYER.addModel(playerLight);
 playerLight.position.set(0, 0, 0);
-PLAYER.setCameraPosition(new THREE.Vector3(0, 1, 2))
+PLAYER.setCameraPosition(new THREE.Vector3(0, 1.25, 2))
+
+const GameState = {
+  PlayerState: "FREEROAM",
+  interationTargetPosition: new THREE.Vector3(0, 0, 0),
+}
+
+hud.modal.closeButtom.addEventListener('click', (_) => {
+  hud.modal.container.classList.remove('appear-grow');
+  GameState.PlayerState = "INTERESTED";
+})
 
 fbxLoader.load(playerModelUrl, (PLAYERMOB) => {
   PLAYERMOB.rotateY(Math.PI);
   PLAYERMOB.scale.set(0.1, 0.1, 0.1);
+  PLAYERMOB.traverse(obj => {
+    if (obj instanceof THREE.Mesh) {
+      (obj.material as THREE.MeshStandardMaterial).metalness = 1.0;
+      (obj.material as THREE.MeshStandardMaterial).roughness = 0.0;
+    }
+  })
   PLAYER.addModel(PLAYERMOB)
 });
 
+// Raycaster setup for mouse interactions
 const raycaster = new THREE.Raycaster(undefined, undefined, undefined, 5);
 
-// Create a scene
-const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0000ff, 0.02);
-// Add player to the scene
-scene.add(PLAYER.model);
+// Add the rendering pass
+const renderPass = new RenderPass(scene, PLAYER.camera);
+composer.addPass(renderPass);
 
-// PLACEHOLDER
-const target = new THREE.Mesh(
-  new THREE.SphereBufferGeometry(1),
-  new THREE.MeshBasicMaterial({
-    color: 0xff0000
+// Add bloom pass
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.5, 0.98);
+composer.addPass(bloomPass);
+
+// Add anti-aliasing pass
+// Only when the we are operating at 1:1 pixel ratio. Otherwise, it's pretty useless
+if (window.devicePixelRatio <= 1) {
+  const smaaPass = new SMAAPass(window.innerWidth, window.innerHeight);
+  composer.addPass(smaaPass);
+}
+
+const groundPlane = new THREE.Mesh(
+  new THREE.PlaneBufferGeometry(200, 200, 100, 100),
+  new THREE.MeshStandardMaterial({
+    map: grassTexture,
+    normalMap: grassNormal,
   })
 )
-target.name = "target";
-scene.add(target)
-target.position.set(10, 1, 10);
+groundPlane.rotateX(-Math.PI / 2);
+scene.add(groundPlane);
 
-// Adding a skyball?
-const fogColor = new Float32Array(4);
-fogColor.set([0.0, 0.0, 1.0, 1.0])
-const skyShaderMaterial = new THREE.ShaderMaterial({
-  fragmentShader: await fetch(skyFragShader).then(r => r.text()),
-  vertexShader: await fetch(skyVertShader).then(r => r.text()),
-  uniforms: {
-    time: {
-      value: tick
-    },
-    fogDensity: {
-      value: 0.02
-    },
-    fogColor: {
-      value: fogColor
-    }
-  },
-  side: THREE.BackSide,
-  fog: false
-})
-
-// Create a skyball for a dynamic starry sky
+// Create a skyball
 const skyball = new THREE.Mesh(
   new THREE.SphereBufferGeometry(100, 40, 40),
-  skyShaderMaterial
+  new THREE.MeshBasicMaterial({
+    map: textureLoader.load('res/backgrounds/vnit_pan_2.png'),
+    fog: true,
+    side: THREE.BackSide
+  })
 )
 skyball.name = "skyball";
 scene.add(skyball);
 
-// Create random lights
-// Fireflies
-type FireFly = {
-  model: THREE.Object3D,
-  radius: number,
-  angularSpeed: number,
-  frequency: number,
+
+function loadLights() {
+  const ambientLight = new THREE.AmbientLight(0x404040, 4);
+  scene.add(ambientLight);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 8);
+  dirLight.color.setHSL(0.5, 0.3, 0.2);
+  dirLight.position.set(0, 1.75, 0);
+  dirLight.position.multiplyScalar(40);
+  scene.add(dirLight);
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 2);
+  hemiLight.color.setHSL(0.3, 0.5, 0.8);
+  hemiLight.groundColor.setHSL(0.6, 0.3, 0.4);
+  scene.add(hemiLight);
 }
-function makeLight() {
-  const geometry = new THREE.BoxBufferGeometry(0.05, 0.05, 0.05, 1, 1, 1);
-  const material = new THREE.MeshStandardMaterial({
-    color: 0xf0f0f0,
-    emissive: 0xffffff,
+loadLights();
+
+// Ads
+let ads: Advert[] = []
+const adPanel = await gltfLoader.loadAsync('res/models/misc/Spons Panel.glb');
+adPanel.scene.scale.setScalar(0.001);
+const adTexture = await textureLoader.loadAsync('res/backgrounds/vnit_pan_2.png');
+const ad = new Advert("Your Firm", "Your Message", adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
+ads.push(ad);
+scene.add(ad._model);
+ad._model.position.set(10, 0, -5);
+ad._model.rotateY(-Math.PI/2)
+const ad2 = new Advert("Their Firm", "Their Message", adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
+ads.push(ad2);
+scene.add(ad2._model);
+ad2._model.position.set(10, 0, 0);
+ad2._model.rotateY(-Math.PI/2)
+const ad3 = new Advert("My Firm", "My Message", adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
+ads.push(ad3);
+scene.add(ad3._model);
+ad3._model.position.set(10, 0, 5);
+ad3._model.rotateY(-Math.PI/2)
+
+// Artwork
+let artworks: Artwork[] = []
+const artworkPanel = await gltfLoader.loadAsync('res/models/misc/Display Panels.glb');
+artworkPanel.scene.scale.setScalar(0.001);
+const artowrkTexture = await textureLoader.loadAsync('res/backgrounds/vnit_pan_2.png');
+const artowrk = new Artwork("My Artwork", "My Canvas", artowrkTexture, artworkPanel.scene, new THREE.Vector3(3.1875, 1.5, -1));
+artworks.push(artowrk)
+scene.add(artowrk._model);
+artowrk._model.position.set(-10, 0, 0);
+artowrk._model.lookAt(PLAYER.position);
+
+// Hedge
+const hedgeTexture = await textureLoader.loadAsync('res/textures/hedge/base.jpg');
+hedgeTexture.wrapS = hedgeTexture.wrapT = THREE.MirroredRepeatWrapping;
+hedgeTexture.repeat.set(200, 5)
+const hedgeNormalTexture = await textureLoader.loadAsync('res/textures/hedge/normal.jpg');
+const hedgeBumpTexture = await textureLoader.loadAsync('res/textures/hedge/height.png');
+const hedgeAOTexture = await textureLoader.loadAsync('res/textures/hedge/ao.jpg');
+const hedgeRoughnessTexture = await textureLoader.loadAsync('res/textures/hedge/roughness.jpg');
+const hedge = new THREE.Mesh(
+  new THREE.TorusBufferGeometry(50, 1, 30, 120),
+  new THREE.MeshStandardMaterial({
+    map: hedgeTexture,
+    normalMap: hedgeNormalTexture,
+    bumpMap: hedgeBumpTexture,
+    aoMap: hedgeAOTexture,
+    roughness: 1.0,
+    roughnessMap: hedgeRoughnessTexture
   })
-  const light = new THREE.Mesh(geometry, material);
-  light.add(new THREE.PointLight(0x0f0f0f, 0.1));
-  const lightmodel: FireFly = {
-    model: light,
-    radius: 5 + Math.random() * 5,
-    angularSpeed: Math.random() * 0.01,
-    frequency: Math.random() * 0.01
-  }
-  return lightmodel;
-}
-let lights: FireFly[] = [];
-function initLights() {
-  for (let i = 0; i < 5; i++) {
-    let l = makeLight();
-    lights.push(l);
-    scene.add(l.model);
-  }
-}
-initLights();
+)
+hedge.rotateX(-Math.PI/2)
+scene.add(hedge)
 
-// Create a forest
-async function createForest() {
-  let props: THREE.Object3D[] = []
-  let loadings = [];
-  for (let prop of TREENAMES) {
-    const model = fbxLoader.loadAsync(`${BASE_PATH.props}${prop}`);
-    loadings.push(model)
-  }
-  props = await Promise.all(loadings)
-  props.forEach(p => p.scale.set(0.02, 0.02, 0.02))
-  const TREES = 20;
-  for (let i = 0; i < TREES; i++) {
-    let choice = Math.floor(Math.random() * props.length);
-    let selected = props[choice]
-    selected.position.set(Math.random() * 10, 0, Math.random() * 10);
-    const THRESHOLD = 2;
-    const MAXTRIES = 20;
-    const FORESTSIZE = 10;
-    let tries = 0;
-    while (Math.min(...forest.children.map(c => selected.position.distanceTo(c.position))) < THRESHOLD) {
-      selected.position.set((Math.random() - 0.5) * 2 * FORESTSIZE, 0, (Math.random() - 0.5) * 2 * FORESTSIZE);
-      tries += 1;
-      if (tries > MAXTRIES) { break; }
-    }
-    selected.castShadow = true;
-    selected.traverse(c => {
-      c.castShadow = true
-      if (c instanceof THREE.Mesh) {
-        (c.geometry as THREE.BufferGeometry).computeVertexNormals();
-      }
-    })
-    let tree = selected.clone()
-    tree.rotateY(Math.random() * 2 * Math.PI);
-    forest.add(tree)
-  }
-  return forest;
-}
-createForest().then(forest => scene.add(forest))
 
-// Ambient and directional light for lighting
-// Hemisphere light for simulating sun and reflected light
-const ambientLight = new THREE.AmbientLight(0x505050, 1.0);
-scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.4);
-dirLight.color.setHSL(0.8, 0.3, 0.2);
-dirLight.position.set(0, 1.75, 0);
-dirLight.position.multiplyScalar(40);
-scene.add(dirLight);
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
-const d = 40;
-dirLight.shadow.camera.left = - d;
-dirLight.shadow.camera.right = d;
-dirLight.shadow.camera.top = d;
-dirLight.shadow.camera.bottom = - d;
-dirLight.shadow.camera.far = 3500;
-dirLight.shadow.bias = - 0.0001;
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.2);
-hemiLight.color.setHSL(0.8, 0.2, 0.2);
-hemiLight.groundColor.setHSL(0.5, 1, 0.75);
-hemiLight.position.set(0, 50, 0);
-scene.add(hemiLight);
+// Hobo
+const concreteTexture = await textureLoader.loadAsync('res/textures/concrete/base.jpg')
+const concreteNormalTexture = await textureLoader.loadAsync('res/textures/concrete/normal.jpg')
+const concreteBumpTexture = await textureLoader.loadAsync('res/textures/concrete/height.png')
+const concreteAOTexture = await textureLoader.loadAsync('res/textures/concrete/ao.jpg')
+const concreteRoughnessTexture = await textureLoader.loadAsync('res/textures/concrete/roughness.jpg')
+const hoboModel = await gltfLoader.loadAsync('res/models/misc/hobo.glb');
+hoboModel.scene.traverse(c => {
+  if (c instanceof THREE.Mesh) {
+    (c.geometry as THREE.BufferGeometry).computeVertexNormals();
+    ((c as THREE.Mesh).material as THREE.MeshStandardMaterial).metalness = 1.0;
+    ((c as THREE.Mesh).material as THREE.MeshStandardMaterial).color = new THREE.Color(0xf0e5f6);
+  }
+})
+hoboModel.scene.scale.setScalar(0.001);
+const hoboBaseGeometry = new THREE.CylinderBufferGeometry(3, 3, 0.3, 36, 1);
+const hoboBaseMaterial = new THREE.MeshStandardMaterial({
+  map: concreteTexture,
+  normalMap: concreteNormalTexture,
+  bumpMap: concreteBumpTexture,
+  aoMap: concreteAOTexture,
+  roughness: 0.5,
+  roughnessMap: concreteRoughnessTexture
+})
+const hoboBase = new THREE.Mesh(hoboBaseGeometry, hoboBaseMaterial);
+const hobo = new THREE.Object3D()
+hobo.add(hoboBase);
+hobo.add(hoboModel.scene);
+scene.add(hobo);
+hobo.position.set(0, 0, -10);
 
-// Creating a ground plane to serve as ground
-const plane = new THREE.Mesh(
-  new THREE.PlaneBufferGeometry(200, 200, 256, 256),
-  new THREE.MeshPhysicalMaterial({
-    map: grassTexture,
-    normalMap: grassNormal,
-    wireframe: false,
-    fog: false
-  }),
+// Dome
+const domeModel = await gltfLoader.loadAsync('res/models/misc/Dome 2.glb')
+const dome = domeModel.scene;
+dome.position.y -= 0.5;
+scene.add(dome)
+
+// Showcase stage for sponsors
+const showcase = new THREE.Object3D();
+const showcaseStageMaterial = hoboBaseMaterial;
+const showcasePlatform = new THREE.Mesh(
+  new THREE.BoxBufferGeometry(8, 0.3, 4),
+  showcaseStageMaterial
 );
-plane.rotateX(-Math.PI / 2);
-plane.receiveShadow = true;
-plane.castShadow = false;
-scene.add(plane);
+showcase.add(showcasePlatform);
 
-// SETUP INTERACTION WITH MOUSE
+const showcaseVideo = document.createElement('video');
+showcaseVideo.src = "res/media/Ryotsu The Magician.mp4";
+document.addEventListener('load', (_) => {
+  showcaseVideo.play();
+  showcaseVideo.loop = true;
+})
+const showcaseScreenGeometry = new THREE.PlaneBufferGeometry(4, 2);
+const showcaseScreenTexture = new THREE.VideoTexture(showcaseVideo);
+const showcaseScreen = new THREE.Mesh(
+  showcaseScreenGeometry,
+  new THREE.MeshBasicMaterial({
+    map: showcaseScreenTexture,
+    side: THREE.DoubleSide,
+  })
+)
+showcaseScreen.translateY(1.5);
+showcaseScreen.rotateY(-Math.PI);
+showcaseScreen.name = "showcase-screen";
+showcase.add(showcaseScreen);
+
+scene.add(showcase);
+showcase.position.set(0, 0, 5);
+
+// Setup mouse interactions
 document.addEventListener('click', (e) => {
-  mousePointer.x = ( e.clientX / window.innerWidth ) * 2 - 1;
-	mousePointer.y = - ( e.clientY / window.innerHeight ) * 2 + 1;
+  mousePointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mousePointer.y = - (e.clientY / window.innerHeight) * 2 + 1;
 
   raycaster.setFromCamera(mousePointer, PLAYER.camera);
-  const intersects = raycaster.intersectObject(target);
-  if (intersects.length) {
-    hud.modal.classList.add('appear-grow');
-    hud.modal.innerText = "INTERACTIVE CONTENT HERE";
+  const intersects = raycaster.intersectObjects(scene.children, true);
+  console.log(intersects);
+
+  if (intersects[0].object.name == "showcase-screen") {
+    if (showcaseVideo.paused || showcaseVideo.currentTime == 0) {
+      showcaseVideo.play();
+    } else {
+      showcaseVideo.pause();
+    }
   }
 })
 
-function shaderUpdate() {
-  skyShaderMaterial.uniforms.time.value = tick;
-}
-
 function gameUpdate() {
-  
-}
+  // Rotate hobo model
+  hobo.rotateY(0.02);
 
-function lightsUpdate() {
-  lights.forEach(l => {
-    l.model.position.set(
-      l.radius * Math.cos(l.angularSpeed * tick),
-      0.5 + 0.5 * Math.sin(l.frequency * 2 * Math.PI * tick),
-      l.radius * Math.sin(l.angularSpeed * tick),
-    )
+  // Rotate interaction rings for ads
+  ads.forEach(ad => {
+    ad._interactionRing.rotation.x = -Math.PI/2 + 0.25 * Math.cos(worldClock.getElapsedTime() * 2)
+    ad._interactionRing.rotation.y = 0.25 * Math.sin(worldClock.getElapsedTime() * 2)
   })
+
+  // Rotate interaction rings for artworks
+  artworks.forEach(artwork => {
+    artwork._interactionRing.rotation.x = -Math.PI/2 + 0.25 * Math.cos(worldClock.getElapsedTime() * 2)
+    artwork._interactionRing.rotation.y = 0.25 * Math.sin(worldClock.getElapsedTime() * 2)
+  })
+
+  // Check for artowk interactions
+  if (GameState.PlayerState == "FREEROAM") {
+    artworks.forEach(artwork => {
+      let ip =  new THREE.Vector3();
+      artwork._interactionRing.getWorldPosition(ip);
+      if (ip.projectOnPlane(new THREE.Vector3(0, 1, 0)).distanceTo(PLAYER.model.position) < 0.6) {
+        GameState.PlayerState = "INTERACTING"
+        GameState.interationTargetPosition.copy(ip)
+        PLAYER.motion.mousecapture = false;
+        PLAYER.motion.mouseNormalX = PLAYER.motion.mouseNormalY = 0;
+        hud.modal.container.classList.add('appear-grow');
+        hud.modal.content.innerText = `Artwork: ${artowrk._firmname}, By: ${artowrk._message}` 
+      }
+    })
+  }
+
+  if (GameState.PlayerState == "INTERESTED") {
+    console.log(PLAYER.model.position.distanceTo(GameState.interationTargetPosition))
+    if (PLAYER.model.position.distanceTo(GameState.interationTargetPosition) > 1.0) {
+      GameState.PlayerState = "FREEROAM"
+    }
+  }
+
+  // Check for ad interations
+  if (GameState.PlayerState == "FREEROAM") {
+    ads.forEach(ad => {
+      let ip =  new THREE.Vector3();
+      ad._interactionRing.getWorldPosition(ip);
+      if (ip.projectOnPlane(new THREE.Vector3(0, 1, 0)).distanceTo(PLAYER.model.position) < 0.2) {
+        GameState.PlayerState = "INTERACTING"
+        PLAYER.animationState = "idle";
+        GameState.interationTargetPosition.copy(ip)
+        PLAYER.motion.mousecapture = false;
+        PLAYER.motion.mouseNormalX = PLAYER.motion.mouseNormalY = 0;
+        hud.modal.container.classList.add('appear-grow');
+        hud.modal.content.innerText = `Welcome to Aarohi'22 sponsored by: ${ad._firmname}, they say: ${ad._message}` 
+      }
+    })
+  }
+
+  if (GameState.PlayerState == "INTERESTED") {
+    console.log(PLAYER.model.position.distanceTo(GameState.interationTargetPosition))
+    if (PLAYER.model.position.distanceTo(GameState.interationTargetPosition) > 1.0) {
+      GameState.PlayerState = "FREEROAM"
+    }
+  }
 }
 
 function update() {
-  PLAYER.update();
+  if (GameState.PlayerState != "INTERACTING") {
+    PLAYER.update(worldClock.getDelta());
+  }
   gameUpdate();
-  lightsUpdate();
-  shaderUpdate();
 }
 
 function animate() {
-  renderer.render(scene, PLAYER.camera);
-  tick += 1;
+  composer.render();
   update();
   window.requestAnimationFrame(animate);
 }
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  PLAYER.camera.aspect = window.innerWidth / window.innerHeight;
+  PLAYER.camera.updateProjectionMatrix();
+})
 
 animate();
