@@ -15,6 +15,9 @@ const grassNormalURL = 'res/textures/grass/Grass_01_Nrm.png'
 
 import { Advert } from './advert';
 import { Artwork } from './artowrk';
+import Hls from 'hls.js';
+
+// import * as URLs from './URLS.json';
 
 
 const playerModelUrl = 'res/models/avatar/source/eve.fbx';
@@ -132,7 +135,7 @@ const renderPass = new RenderPass(scene, PLAYER.camera);
 composer.addPass(renderPass);
 
 // Add bloom pass
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.5, 0.98);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.98);
 composer.addPass(bloomPass);
 
 // Add anti-aliasing pass
@@ -156,7 +159,7 @@ scene.add(groundPlane);
 const skyball = new THREE.Mesh(
   new THREE.SphereBufferGeometry(100, 40, 40),
   new THREE.MeshBasicMaterial({
-    map: textureLoader.load('res/backgrounds/vnit_pan_2.png'),
+    color: 0x87ceeb,
     fog: true,
     side: THREE.BackSide
   })
@@ -181,32 +184,63 @@ function loadLights() {
 loadLights();
 
 // Ads
+const adBasePath = 'res/logos/';
+const adURLs = [
+  {
+    path: 'cu-logo.png',
+    firm: 'Crypto University',
+    message: 'Crypto University'
+  },
+  {
+    path: 'dharampeth-logo.png',
+    firm: 'Dharampeth Mahila Bank',
+    message: 'Dharampeth Mahila Bank',
+  },
+  {
+    path: 'empower-logo.png',
+    firm: 'empower',
+    message: 'empower',
+  },
+  {
+    path: 'made-easy-logo.png',
+    firm: 'made-easy',
+    message: 'made-easy',
+  },
+  {
+    path: 'nest-and-spoon-logo.png',
+    firm: 'nest and spoon',
+    message: 'nest and spoon'
+  },
+  {
+    path: 'wcl-logo.png',
+    firm: 'WCL',
+    message: 'WCL'
+  }
+]
 let ads: Advert[] = []
+let adZ = -15;
 const adPanel = await gltfLoader.loadAsync('res/models/misc/Spons Panel.glb');
 adPanel.scene.scale.setScalar(0.001);
-const adTexture = await textureLoader.loadAsync('res/backgrounds/vnit_pan_2.png');
-const ad = new Advert("Your Firm", "Your Message", adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
-ads.push(ad);
-scene.add(ad._model);
-ad._model.position.set(10, 0, -5);
-ad._model.rotateY(-Math.PI/2)
-const ad2 = new Advert("Their Firm", "Their Message", adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
-ads.push(ad2);
-scene.add(ad2._model);
-ad2._model.position.set(10, 0, 0);
-ad2._model.rotateY(-Math.PI/2)
-const ad3 = new Advert("My Firm", "My Message", adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
-ads.push(ad3);
-scene.add(ad3._model);
-ad3._model.position.set(10, 0, 5);
-ad3._model.rotateY(-Math.PI/2)
+for (let adv of adURLs)  {
+  const adTexture = await textureLoader.loadAsync(`${adBasePath}${adv.path}`);
+  const ad = new Advert(adv.firm, adv.message, adTexture, adPanel.scene, new THREE.Vector3(1.375, 1.375, 0.01))
+  ads.push(ad)
+  scene.add(ad._model)
+  ad._model.rotateY(-Math.PI/2)
+  ad._model.position.set(
+    10,
+    0,
+    adZ
+  )
+  adZ += 5;
+}
 
 // Artwork
 let artworks: Artwork[] = []
-const artworkPanel = await gltfLoader.loadAsync('res/models/misc/Display Panels.glb');
-artworkPanel.scene.scale.setScalar(0.001);
+const artworkPanel = await fbxLoader.loadAsync('res/models/misc/Display Panels.fbx');
+artworkPanel.scale.setScalar(0.001);
 const artowrkTexture = await textureLoader.loadAsync('res/backgrounds/vnit_pan_2.png');
-const artowrk = new Artwork("My Artwork", "My Canvas", artowrkTexture, artworkPanel.scene, new THREE.Vector3(3.1875, 1.5, -1));
+const artowrk = new Artwork("My Artwork", "My Canvas", artowrkTexture, artworkPanel, new THREE.Vector3(3.1875, 1.5, -1));
 artworks.push(artowrk)
 scene.add(artowrk._model);
 artowrk._model.position.set(-10, 0, 0);
@@ -241,7 +275,7 @@ const concreteNormalTexture = await textureLoader.loadAsync('res/textures/concre
 const concreteBumpTexture = await textureLoader.loadAsync('res/textures/concrete/height.png')
 const concreteAOTexture = await textureLoader.loadAsync('res/textures/concrete/ao.jpg')
 const concreteRoughnessTexture = await textureLoader.loadAsync('res/textures/concrete/roughness.jpg')
-const hoboModel = await gltfLoader.loadAsync('res/models/misc/hobo.glb');
+const hoboModel = await gltfLoader.loadAsync('res/models/misc/Hobo.glb');
 hoboModel.scene.traverse(c => {
   if (c instanceof THREE.Mesh) {
     (c.geometry as THREE.BufferGeometry).computeVertexNormals();
@@ -264,11 +298,12 @@ const hobo = new THREE.Object3D()
 hobo.add(hoboBase);
 hobo.add(hoboModel.scene);
 scene.add(hobo);
-hobo.position.set(0, 0, -10);
+hobo.position.set(0, 0, -20);
 
 // Dome
 const domeModel = await gltfLoader.loadAsync('res/models/misc/Dome 2.glb')
 const dome = domeModel.scene;
+dome.scale.setScalar(1.5)
 dome.position.y -= 0.5;
 scene.add(dome)
 
@@ -282,16 +317,22 @@ const showcasePlatform = new THREE.Mesh(
 showcase.add(showcasePlatform);
 
 const showcaseVideo = document.createElement('video');
-showcaseVideo.src = "res/media/Ryotsu The Magician.mp4";
+let videoSource = 'https://cph-msl.akamaized.net/hls/live/2000341/test/master.m3u8';
+if (Hls.isSupported()) {
+  let hls = new Hls();
+  hls.loadSource(videoSource);
+  hls.attachMedia(showcaseVideo)
+}
+// showcaseVideo.src = "res/media/tj.mp4";
 document.addEventListener('load', (_) => {
   showcaseVideo.play();
-  showcaseVideo.loop = true;
 })
-const showcaseScreenGeometry = new THREE.PlaneBufferGeometry(4, 2);
+const showcaseScreenGeometry = new THREE.PlaneBufferGeometry(6, 3);
 const showcaseScreenTexture = new THREE.VideoTexture(showcaseVideo);
 const showcaseScreen = new THREE.Mesh(
   showcaseScreenGeometry,
   new THREE.MeshBasicMaterial({
+    color: 0xfafafa,
     map: showcaseScreenTexture,
     side: THREE.DoubleSide,
   })
@@ -302,7 +343,7 @@ showcaseScreen.name = "showcase-screen";
 showcase.add(showcaseScreen);
 
 scene.add(showcase);
-showcase.position.set(0, 0, 5);
+showcase.position.set(0, 0, 15);
 
 // Setup mouse interactions
 document.addEventListener('click', (e) => {
